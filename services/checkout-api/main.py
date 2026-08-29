@@ -38,7 +38,7 @@ HANDLERS = {
 DEFAULT_VERSION = v1_4_2.VERSION
 
 # Alerting thresholds. Deliberately simple and deliberately visible in the
-# repo, so a judge can see exactly what makes the alert fire.
+# repo, so it is obvious exactly what makes the alert fire.
 ERROR_RATE_THRESHOLD = 0.10
 P99_THRESHOLD_MS = 550.0
 ALERT_WINDOW_SECONDS = 60

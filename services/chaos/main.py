@@ -3,7 +3,7 @@
 `chaos deploy` ships the bad version of checkout-api. That is the whole
 outage: one row in the deploys table. It is deterministic, reversible, and
 completely honest about what it did, which is what makes the demo
-reproducible on a judge's machine.
+reproducible on anyone else's machine.
 """
 
 from __future__ import annotations

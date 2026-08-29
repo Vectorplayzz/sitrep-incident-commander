@@ -1,0 +1,53 @@
+[
+  {
+    "model": "glm-5.3",
+    "verdict": "PASS",
+    "detail": "chained both hops, correct args, reported the numbers",
+    "called": [
+      "get_alerts",
+      "get_metrics"
+    ],
+    "seconds": 21.9
+  },
+  {
+    "model": "glm-5.2",
+    "verdict": "PASS",
+    "detail": "chained both hops, correct args, reported the numbers",
+    "called": [
+      "get_alerts",
+      "get_metrics"
+    ],
+    "seconds": 7.1
+  },
+  {
+    "model": "deepseek-v4-flash:0731",
+    "verdict": "PASS",
+    "detail": "chained both hops, correct args, reported the numbers",
+    "called": [
+      "get_alerts",
+      "get_metrics",
+      "get_metrics"
+    ],
+    "seconds": 7.0
+  },
+  {
+    "model": "kimi-k3",
+    "verdict": "PASS",
+    "detail": "chained both hops, correct args, reported the numbers",
+    "called": [
+      "get_alerts",
+      "get_metrics"
+    ],
+    "seconds": 8.8
+  },
+  {
+    "model": "deepseek-v4-pro:0813",
+    "verdict": "PASS",
+    "detail": "chained both hops, correct args, reported the numbers",
+    "called": [
+      "get_alerts",
+      "get_metrics"
+    ],
+    "seconds": 4.4
+  }
+]

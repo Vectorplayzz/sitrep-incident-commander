@@ -60,16 +60,4 @@ services:
       checkout-api:
         condition: service_healthy
 
-  mcp-server:
-    build:
-      context: ./mcp-server
-    environment:
-      SITREP_DB: /data/telemetry.db
-      SITREP_MCP_PORT: "8931"
-    volumes:
-      - ./data:/data
-    ports:
-      - "8931:8931"
-    depends_on:
-      checkout-api:
-        condition: service_healthy
+# The MCP server the agent investigates through is added in the next PR.

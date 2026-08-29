@@ -30,11 +30,19 @@ VERSION = "v2.0.1"
 # Twenty-five of them, serially, is an outage.
 LOOKUP_LATENCY_MS = float(os.environ.get("INVENTORY_LATENCY_MS", "28"))
 
-# A bounded worker pool, like any real service. This is the mechanism that
-# turns an N+1 into an outage: 12 concurrent checkouts each firing ~25
-# serial lookups is 300 requests contending for 24 slots, so queue time
-# dominates and callers start blowing their timeout budget. Baseline
-# traffic (one batch call per checkout) never comes close to the limit.
+# A bounded worker pool, like any real service has.
+#
+# To be precise about what this does and does not do: the N+1 in checkout
+# v1.5.0 is *serial*, so a checkout worker only ever has one lookup in
+# flight. With the shipped generators capping concurrency at 12 against 24
+# permits, this semaphore does not saturate and is NOT what causes the
+# outage. The outage is purely serial latency (~28ms x cart size) exceeding
+# checkout's 600ms request budget.
+#
+# The pool is here because a real upstream has one, and because lowering
+# INVENTORY_POOL_SIZE below the checkout concurrency turns queue contention
+# into a second, independent failure mode worth investigating. Left at 24 by
+# default so the demo has exactly one root cause to find.
 POOL_SIZE = int(os.environ.get("INVENTORY_POOL_SIZE", "24"))
 
 app = FastAPI(title=SERVICE, version=VERSION)

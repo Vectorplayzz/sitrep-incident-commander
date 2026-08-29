@@ -12,32 +12,48 @@
     "mcp_servers": [
       {
         "name": "sitrep",
-        "enable_tools": ["@all"],
+        "enable_tools": [
+          "@all"
+        ],
         "require_approval_for_tools": [
           "rollback_service",
           "scale_service",
           "post_status_update",
           "file_postmortem"
         ],
-        "preload_tools": ["get_alerts", "search_incident_memory"],
-        "preload": false
+        "preload": true
       }
     ],
-    "skills": [{ "name": "incident-command" }],
+    "skills": [
+      {
+        "name": "incident-command"
+      }
+    ],
     "config": {
       "sandbox": {
         "enabled": true,
         "file_downloads": true
       },
-      "dynamic_sub_agents": { "enabled": true },
-      "generative_ui": { "enabled": true },
-      "ask_user_questions": { "enabled": true },
+      "dynamic_sub_agents": {
+        "enabled": true
+      },
+      "generative_ui": {
+        "enabled": true
+      },
+      "ask_user_questions": {
+        "enabled": true
+      },
       "context_management": {
         "compaction": {
           "enabled": true,
-          "trigger": { "type": "input_tokens", "value": 80000 }
+          "trigger": {
+            "type": "input_tokens",
+            "value": 80000
+          }
         },
-        "large_tool_response": { "enabled": true }
+        "large_tool_response": {
+          "enabled": true
+        }
       },
       "iteration_limit": 80
     }

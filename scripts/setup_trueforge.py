@@ -256,7 +256,11 @@ def create_agent(tf: TrueForge, model: str) -> bool:
                 break
 
     if match:
-        status, body = tf.request("PUT", f"/api/v1/agents/{match['id']}", spec)
+        # Update takes the manifest alone; the name is immutable and passing
+        # it back is rejected with "Unrecognized key".
+        status, body = tf.request(
+            "PUT", f"/api/v1/agents/{match['id']}", {"manifest": spec["manifest"]}
+        )
         verb = "updated"
     else:
         status, body = tf.request("POST", "/api/v1/agents", spec)

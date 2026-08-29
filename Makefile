@@ -1,4 +1,4 @@
-.PHONY: up down logs incident heal status reset ps surge degrade restore demo-prep
+.PHONY: up down logs incident heal status reset ps surge degrade restore fresh
 
 ## Bring the victim stack up and start generating a healthy baseline.
 up:
@@ -42,9 +42,9 @@ degrade:
 restore:
 	docker compose exec -T checkout-api python -m chaos.main restore
 
-## Everything needed before recording: wipe, rebuild, re-register, build a
-## traffic baseline, and warm the sandbox so the first take is not slow.
-demo-prep:
+## Reset to a clean, running stack: wipe, rebuild, re-register the agent,
+## build a traffic baseline, and warm the sandbox.
+fresh:
 	docker compose down -v
 	docker compose up -d --build
 	@echo "waiting 45s for services to come up..."
@@ -58,4 +58,4 @@ demo-prep:
 	@echo "baseline check - error_rate must be 0.0:"
 	docker compose exec -T checkout-api python -m chaos.main status
 	@echo ""
-	@echo "Ready. Script: docs/recording-script.md"
+	@echo "Ready. See docs/how-it-works.md to break it and watch the agent work."

@@ -15,8 +15,7 @@ make incident           # break something
 python scripts/run_incident.py
 ```
 
-Full instructions: **[docs/setup.md](docs/setup.md)**. Recording the demo:
-**[docs/recording-script.md](docs/recording-script.md)**.
+Full instructions: **[docs/setup.md](docs/setup.md)**.
 
 ---
 

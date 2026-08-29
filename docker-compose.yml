@@ -1,0 +1,75 @@
+# The SITREP victim stack: a small e-commerce backend that is about to
+# have a bad day, plus the MCP server the agent uses to investigate it.
+#
+#   docker compose up -d      bring the stack up (healthy baseline)
+#   make incident             ship the bad deploy
+#   make status               see what is on fire
+
+name: sitrep
+
+services:
+  inventory-api:
+    build:
+      context: ./services
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /app/inventory-api
+    environment:
+      SITREP_DB: /data/telemetry.db
+      INVENTORY_LATENCY_MS: "28"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx;httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  checkout-api:
+    build:
+      context: ./services
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /app/checkout-api
+    environment:
+      SITREP_DB: /data/telemetry.db
+      INVENTORY_URL: http://inventory-api:8000
+    volumes:
+      - ./data:/data
+    ports:
+      - "8801:8000"
+    depends_on:
+      inventory-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx;httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  loadgen:
+    build:
+      context: ./services
+    command: python -m loadgen.main
+    environment:
+      SITREP_DB: /data/telemetry.db
+      CHECKOUT_URL: http://checkout-api:8000
+      LOADGEN_RPS: "6"
+      LOADGEN_CONCURRENCY: "12"
+    volumes:
+      - ./data:/data
+    depends_on:
+      checkout-api:
+        condition: service_healthy
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+    environment:
+      SITREP_DB: /data/telemetry.db
+      SITREP_MCP_PORT: "8931"
+    volumes:
+      - ./data:/data
+    ports:
+      - "8931:8931"
+    depends_on:
+      checkout-api:
+        condition: service_healthy

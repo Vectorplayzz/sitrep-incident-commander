@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: mcp tool tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r mcp-server/requirements.txt
+          pip install pytest
+
+      - name: Run tests
+        run: pytest mcp-server/tests -q
+
+  compose:
+    name: compose config is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Catches the class of bug where a service references a build context
+      # that does not exist, which breaks `make up` for anyone cloning fresh.
+      - name: Validate docker compose
+        run: docker compose config -q

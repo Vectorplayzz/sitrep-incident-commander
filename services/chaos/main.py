@@ -54,7 +54,7 @@ def deploy(version: str) -> None:
 
 SURGE_WORKERS = 64
 SURGE_THINK_TIME_MS = 60.0
-DEGRADED_LATENCY_MS = 190.0
+DEGRADED_LATENCY_MS = 590.0
 
 
 def surge(workers: int = SURGE_WORKERS) -> None:

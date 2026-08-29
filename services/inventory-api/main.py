@@ -181,7 +181,12 @@ async def get_item(item_id: str) -> dict[str, object]:
 async def get_items_batch(body: BatchRequest) -> dict[str, object]:
     """Batch lookup. Costs roughly one lookup regardless of item count."""
     async with _pool:
-        await asyncio.sleep(current_latency_ms() / 1000)
+        # Same jitter as the single-item path. Without it every batch call
+        # takes exactly the configured latency, so a degraded upstream either
+        # misses the caller's budget entirely or blows it on every single
+        # request -- never the partial, ragged failure a real one produces.
+        jitter = random.uniform(0.85, 1.15)
+        await asyncio.sleep((current_latency_ms() * jitter) / 1000)
     return {
         "items": [
             {"item_id": i, "in_stock": True, "warehouse": "ams-1"} for i in body.item_ids

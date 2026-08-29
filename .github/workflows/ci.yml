@@ -23,7 +23,7 @@ jobs:
           pip install pytest pandas numpy scipy matplotlib
 
       - name: Run tests
-        run: pytest mcp-server/tests skills/incident-command/tests -q
+        run: pytest mcp-server/tests skills/incident-command/tests agents/tests -q
 
   compose:
     name: compose config is valid

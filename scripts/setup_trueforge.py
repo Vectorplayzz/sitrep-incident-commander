@@ -85,7 +85,7 @@ class TrueForge:
         except urllib.error.URLError as exc:
             raise SystemExit(
                 f"cannot reach TrueForge at {self.base} ({exc.reason}).\n"
-                "Start it with:  npx @truefoundry/trueforge@latest"
+                "Start it with:  docker compose up -d trueforge"
             ) from exc
 
 
@@ -124,15 +124,86 @@ def configure_model_provider(tf: TrueForge, api_key: str, base_url: str) -> bool
                   f"model provider {PROVIDER_NAME} ({len(MODELS)} models)")
 
 
+def preflight_daytona(api_key: str) -> bool:
+    """Check the key can actually write before handing it to TrueForge.
+
+    A read-scoped Daytona key authenticates fine and lists sandboxes happily,
+    so it looks correct right up until TrueForge tries to build its snapshot
+    and returns a bare 'Daytona rejected the API key'. That message sends you
+    looking for a typo in a key that is not typo'd. Probing the write path
+    here turns a confusing failure into an actionable one.
+    """
+    req = urllib.request.Request(
+        "https://app.daytona.io/api/snapshots",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            print("  FAILED   Daytona key cannot even read snapshots (HTTP"
+                  f" {exc.code}). Check the key itself.")
+            return False
+    except urllib.error.URLError as exc:
+        print(f"  warning  could not reach Daytona to preflight the key ({exc.reason});"
+              " continuing anyway")
+        return True
+
+    # Reads work. Now the part that actually matters.
+    probe = urllib.request.Request(
+        "https://app.daytona.io/api/snapshots",
+        data=json.dumps({"name": "sitrep-preflight", "imageName": "ubuntu:24.04"}).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(probe, timeout=60) as resp:
+            resp.read()
+        print("  preflight  Daytona key can create snapshots")
+        return True
+    except urllib.error.HTTPError as exc:
+        if exc.code == 403:
+            print(
+                "  FAILED   Daytona key is read-only.\n"
+                "           It can list sandboxes and snapshots, but POST"
+                " /api/snapshots returns 403.\n"
+                "           TrueForge builds a snapshot on first configuration,"
+                " so this key cannot work.\n"
+                "           Create a new key at https://app.daytona.io with"
+                " sandbox AND snapshot\n"
+                "           create permissions, then put it in .env as"
+                " DAYTONA_API_KEY.\n"
+                "           Without a sandbox there are no skills either, so"
+                " the agent loses its playbook."
+            )
+            return False
+        # Anything else (a name conflict, a quota message) means the key can
+        # write; the request was refused for an unrelated reason.
+        print(f"  preflight  Daytona key accepted for writes (HTTP {exc.code})")
+        return True
+    except urllib.error.URLError as exc:
+        print(f"  warning  Daytona preflight inconclusive ({exc.reason}); continuing")
+        return True
+
+
 def configure_sandbox(tf: TrueForge, api_key: str) -> bool:
     manifest = {
         "type": "daytona",
         "auth": {"api_key": api_key},
         # The analysis script pip-installs pandas/scipy/matplotlib on first
-        # use, so give it room. Auto-stop keeps idle sandboxes from burning
-        # quota between demo runs.
+        # use, so give it room.
         "exec_timeout_ms": 300_000,
+        # All three intervals are required in practice, despite the OpenAPI
+        # schema listing them as optional. Omitting them returns HTTP 400
+        # "expected number, received undefined".
+        #
+        # Stop idle sandboxes quickly so a demo run does not burn quota, but
+        # never auto-delete (0): deletion would discard the built snapshot and
+        # the next run would pay the multi-minute rebuild again.
         "auto_stop_interval_in_minutes": 15,
+        "auto_archive_interval_in_minutes": 60,
+        "auto_delete_interval_in_minutes": 0,
     }
     status, body = tf.request("PUT", "/api/v1/settings/sandbox-providers",
                               {"manifest": manifest})
@@ -242,7 +313,7 @@ def main() -> int:
     load_env()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=os.environ.get("TRUEFORGE_BASE_URL", DEFAULT_BASE))
-    parser.add_argument("--mcp-url", default=os.environ.get("SITREP_MCP_URL", "http://localhost:8931/mcp"))
+    parser.add_argument("--mcp-url", default=os.environ.get("SITREP_MCP_URL", "http://mcp-server:8931/mcp"))
     parser.add_argument("--repo-url", default=os.environ.get(
         "SITREP_REPO_URL", "https://github.com/Vectorplayzz/sitrep-incident-commander"))
     parser.add_argument("--ref", default=os.environ.get("SITREP_SKILL_REF", "main"))
@@ -265,7 +336,10 @@ def main() -> int:
     ok = True
     ok &= configure_model_provider(tf, ollama_key, os.environ.get(
         "OLLAMA_BASE_URL", "https://ollama.com/v1"))
-    ok &= configure_sandbox(tf, daytona_key)
+    if preflight_daytona(daytona_key):
+        ok &= configure_sandbox(tf, daytona_key)
+    else:
+        ok = False
     ok &= configure_connector(tf, args.mcp_url)
     ok &= configure_skill(tf, args.repo_url, args.ref)
     ok &= create_agent(tf, args.model)

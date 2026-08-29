@@ -5,16 +5,26 @@ Docker pulling images and Daytona building a sandbox snapshot.
 
 ## What you need
 
-- **Docker** — runs the stack SITREP investigates
-- **Node 22+** — runs TrueForge
+- **Docker** — runs everything, including TrueForge itself
 - **Python 3.12+** — runs the setup script
 - **A model API key.** Any OpenAI-compatible endpoint works. The defaults
   target [Ollama Cloud](https://ollama.com), so the whole agent runs on
   open-weight models. See [model choice](#model-choice) below.
-- **A [Daytona](https://daytona.io) API key**, with **sandbox and snapshot**
-  permissions. TrueForge builds a snapshot in your account the first time it
-  configures the provider, so a key without snapshot rights fails at setup.
-  The sandbox is not optional here: skills require it.
+- **A [Daytona](https://daytona.io) API key with WRITE permissions.**
+
+  This is the single most common setup failure, so it is worth being precise.
+  TrueForge builds a snapshot in your Daytona account the first time it
+  configures the provider. A **read-scoped key authenticates fine** — it will
+  happily list sandboxes and snapshots — and then fails with a bare
+  `Daytona rejected the API key`, which sends you hunting for a typo in a key
+  that is not typo'd.
+
+  When creating the key, grant **sandbox and snapshot create** permissions,
+  not just read. `scripts/setup_trueforge.py` preflights this and tells you
+  plainly if the key cannot write.
+
+  The sandbox is not optional: skills are materialised into it, so without a
+  working sandbox the agent loses its entire playbook.
 
 ## 1. Credentials
 
@@ -24,14 +34,31 @@ cp .env.example .env
 
 Fill in `OLLAMA_API_KEY` and `DAYTONA_API_KEY`. The file is gitignored.
 
-## 2. Start the stack
+## 2. Start everything
 
 ```bash
 make up
 ```
 
-That brings up `checkout-api`, `inventory-api`, a load generator, and the
-SITREP MCP server on `http://localhost:8931/mcp`.
+That brings up `checkout-api`, `inventory-api`, a load generator, the SITREP
+MCP server, and **TrueForge itself** — the harness runs as a compose service
+on `http://localhost:8790`.
+
+Running the harness in a container is not a stylistic choice. TrueForge
+v0.1.4 cannot start natively on Windows: it hands an absolute Windows path to
+the ESM loader without a `file://` scheme and dies with
+`Received protocol 'c:'`. Its local sandbox provider is also macOS/Linux
+only. Containerising it sidesteps both, puts the harness on the same Docker
+network as the MCP server (so the connector URL is service DNS rather than a
+host loopback hop), and makes setup identical on every OS.
+
+If you would rather run TrueForge on the host — fine on macOS and Linux:
+
+```bash
+docker compose up -d checkout-api inventory-api loadgen mcp-server
+npx @truefoundry/trueforge@latest
+python scripts/setup_trueforge.py --mcp-url http://localhost:8931/mcp
+```
 
 **Give it about 90 seconds.** The agent needs healthy traffic to compare
 against — without a baseline, the change-point analysis has nothing to detect
@@ -42,16 +69,7 @@ make status
 # {"active_version": "v1.4.2", "error_rate": 0.0, "p99_ms": 69.5}
 ```
 
-## 3. Start TrueForge
-
-```bash
-npx @truefoundry/trueforge@latest
-```
-
-Leave it running. It serves the harness and chat UI on
-`http://localhost:8790`.
-
-## 4. Configure it
+## 3. Configure it
 
 ```bash
 python scripts/setup_trueforge.py
@@ -73,7 +91,7 @@ python scripts/setup_trueforge.py --check
 You want **13 tools** discovered from the `sitrep` connector. Fewer means the
 MCP server is not reachable — check `docker compose ps`.
 
-## 5. Break something
+## 4. Break something
 
 ```bash
 make incident
@@ -84,7 +102,7 @@ from `inventory-api` individually instead of in one batch. Large carts blow
 the 600 ms upstream budget; small ones do not. Within a minute or so the
 error rate climbs to roughly 30% and an alert fires.
 
-## 6. Hand it to the agent
+## 5. Hand it to the agent
 
 Open `http://localhost:8790`, start a session with **sitrep-commander**, and
 say:
@@ -101,7 +119,7 @@ Approve it, and confirm recovery yourself:
 make status
 ```
 
-## 7. The second time
+## 6. The second time
 
 Once it has filed a postmortem, run `make incident` again and give it the
 same instruction.
@@ -153,14 +171,33 @@ tools or the skill is provider-specific.
 ## Troubleshooting
 
 **`cannot reach TrueForge at http://localhost:8790`**
-TrueForge is not running, or is on another port. Start it, or pass
-`--base-url`.
+`docker compose ps` should show `trueforge` running. If it is running but
+unreachable, check it is binding all interfaces — TrueForge defaults `HOST`
+to `localhost`, which inside a container means the published port reaches
+nothing. The image sets `HOST=0.0.0.0` for this reason.
 
-**Sandbox provider fails to configure**
-The Daytona key needs snapshot creation rights, not just sandbox rights.
-TrueForge builds a release snapshot on first configuration. Without it,
-skills and code execution both fail — and skills are where the playbook
-lives.
+**`Daytona rejected the API key`**
+Almost always a read-scoped key rather than a wrong one. Confirm directly:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  -H "Authorization: Bearer $DAYTONA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"permcheck","imageName":"ubuntu:24.04"}' \
+  https://app.daytona.io/api/snapshots
+```
+
+`403` means read-only — create a new key with snapshot create permission.
+`GET /api/snapshots` returning `200` proves nothing; reads are not the
+problem.
+
+**`skills require a sandbox provider`**
+Downstream of the above. The agent cannot be created until the sandbox
+provider is configured, because it references a skill.
+
+**TrueForge will not start on Windows outside Docker**
+Known upstream limitation in v0.1.4 and v0.2.0-rc.0. Use the compose
+service.
 
 **`--check` reports fewer than 13 tools**
 The MCP server is unreachable from TrueForge. `docker compose ps` should

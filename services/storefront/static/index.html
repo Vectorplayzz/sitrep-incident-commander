@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind Supply</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #262c36;
+    --ink: #e6edf3; --muted: #8b949e;
+    --ok: #2ea043; --bad: #f85149; --warn: #d29922; --accent: #388bfd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    border-bottom: 1px solid var(--line); padding: 18px 28px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .logo { font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+  .logo span { color: var(--accent); }
+  .strip {
+    margin-left: auto; display: flex; gap: 22px; align-items: center;
+    font-size: 13px; color: var(--muted);
+  }
+  .strip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  .dot.bad { background: var(--bad); }
+  .dot.warn { background: var(--warn); }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .08em;
+       color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px;
+  }
+  .card .name { font-weight: 600; margin-bottom: 4px; }
+  .card .sku { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+  .card .price { margin-top: 10px; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .checkout {
+    margin-top: 30px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 22px;
+  }
+  .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  .basket { display: flex; gap: 10px; }
+  .basket button {
+    background: #0d1117; border: 1px solid var(--line); color: var(--ink);
+    padding: 12px 16px; border-radius: 8px; cursor: pointer; text-align: left;
+    font: inherit; min-width: 190px;
+  }
+  .basket button:hover { border-color: var(--accent); }
+  .basket button.sel { border-color: var(--accent); background: #0d1a2d; }
+  .basket small { display: block; color: var(--muted); font-size: 12px; }
+  button.buy {
+    background: var(--accent); color: #fff; border: 0; padding: 13px 26px;
+    border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button.buy:disabled { opacity: .55; cursor: wait; }
+  .result { margin-top: 18px; padding: 15px 17px; border-radius: 9px;
+            border: 1px solid var(--line); display: none; }
+  .result.show { display: block; }
+  .result.ok { border-color: var(--ok); background: #0d1f14; }
+  .result.err { border-color: var(--bad); background: #24100f; }
+  .result .title { font-weight: 700; margin-bottom: 5px; }
+  .result .meta { color: var(--muted); font-size: 13px; font-family: ui-monospace, monospace; }
+  .log { margin-top: 22px; }
+  .log ul { list-style: none; padding: 0; margin: 0;
+            font-family: ui-monospace, monospace; font-size: 13px; }
+  .log li { padding: 7px 11px; border-bottom: 1px solid var(--line);
+            display: flex; gap: 12px; }
+  .log li.ok { color: #7ee2a8; }
+  .log li.err { color: #ff9d97; }
+  .log li time { color: var(--muted); }
+  details.ops { margin-top: 34px; border-top: 1px solid var(--line); padding-top: 16px; }
+  details.ops summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .ops-body { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .ops-body button {
+    background: #0d1117; border: 1px solid var(--line); color: var(--ink);
+    padding: 10px 15px; border-radius: 8px; cursor: pointer; font: inherit;
+  }
+  .ops-body button:hover { border-color: var(--warn); }
+  .ops-note { color: var(--muted); font-size: 12.5px; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Northwind <span>Supply</span></div>
+  <div class="strip">
+    <span><span class="dot" id="dot"></span></span>
+    <span>checkout <b id="ver">—</b></span>
+    <span>errors <b id="err">—</b></span>
+    <span>p99 <b id="p99">—</b></span>
+  </div>
+</header>
+
+<main>
+  <h2>Workshop &amp; Trade</h2>
+  <div class="grid" id="grid"></div>
+
+  <div class="checkout">
+    <h2>Place an order</h2>
+    <div class="row">
+      <div class="basket">
+        <button id="b-small" class="sel" onclick="pick(4)">
+          Small basket <small>4 line items</small>
+        </button>
+        <button id="b-large" onclick="pick(24)">
+          Full trade order <small>24 line items</small>
+        </button>
+      </div>
+      <button class="buy" id="buy" onclick="order()">Place order</button>
+    </div>
+    <div class="result" id="result"></div>
+  </div>
+
+  <div class="log">
+    <h2>Recent orders</h2>
+    <ul id="log"></ul>
+  </div>
+
+  <details class="ops">
+    <summary>Operations</summary>
+    <div class="ops-body">
+      <button onclick="deploy('v1.5.0')">Deploy checkout v1.5.0</button>
+      <button onclick="deploy('v1.4.2')">Deploy checkout v1.4.2</button>
+    </div>
+    <div class="ops-note">
+      v1.5.0 adds the ships-from warehouse badge. v1.4.2 is the release before it.
+    </div>
+  </details>
+</main>
+
+<script>
+const PRODUCTS = [
+  ["Bench vice, 150mm", "sku-4417", 89.00],
+  ["Impact driver set", "sku-2280", 74.50],
+  ["Torque wrench", "sku-9051", 132.00],
+  ["Digital calipers", "sku-3364", 41.25],
+  ["Workshop apron", "sku-7712", 28.00],
+  ["Cable ties, 500pk", "sku-1905", 12.40],
+  ["Hex key set", "sku-6633", 19.99],
+  ["Safety goggles", "sku-8148", 15.75],
+];
+
+let lines = 4;
+
+document.getElementById("grid").innerHTML = PRODUCTS.map(([n, s, p]) => `
+  <div class="card">
+    <div class="name">${n}</div>
+    <div class="sku">${s}</div>
+    <div class="price">£${p.toFixed(2)}</div>
+  </div>`).join("");
+
+function pick(n) {
+  lines = n;
+  document.getElementById("b-small").classList.toggle("sel", n === 4);
+  document.getElementById("b-large").classList.toggle("sel", n === 24);
+}
+
+async function order() {
+  const btn = document.getElementById("buy");
+  const box = document.getElementById("result");
+  btn.disabled = true;
+  btn.textContent = "Placing order…";
+  box.className = "result";
+
+  let res, body;
+  try {
+    res = await fetch("/api/order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cart_lines: lines }),
+    });
+    body = await res.json();
+  } catch (e) {
+    body = { ok: false, error: "Network error. Please try again." };
+  }
+
+  if (body.ok) {
+    box.className = "result show ok";
+    box.innerHTML = `<div class="title">Order confirmed — ${body.order_id}</div>
+      <div class="meta">${body.cart_lines} line items · £${(body.total ?? 0).toFixed(2)} · ${body.duration_ms} ms</div>`;
+  } else {
+    box.className = "result show err";
+    box.innerHTML = `<div class="title">${body.error}</div>
+      <div class="meta">${lines} line items${body.duration_ms ? " · " + body.duration_ms + " ms" : ""}${body.trace_id ? " · trace " + body.trace_id.slice(0, 12) : ""}</div>`;
+  }
+
+  const li = document.createElement("li");
+  li.className = body.ok ? "ok" : "err";
+  li.innerHTML = `<time>${new Date().toLocaleTimeString()}</time>
+    <span>${body.ok ? "confirmed" : "FAILED  "}</span>
+    <span>${lines} items</span>
+    <span>${body.duration_ms ?? "—"} ms</span>`;
+  const log = document.getElementById("log");
+  log.prepend(li);
+  while (log.children.length > 8) log.lastChild.remove();
+
+  btn.disabled = false;
+  btn.textContent = "Place order";
+}
+
+async function deploy(version) {
+  await fetch("/api/ops/deploy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  refresh();
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    document.getElementById("ver").textContent = s.version ?? "—";
+    if (s.samples) {
+      const rate = s.error_rate ?? 0;
+      document.getElementById("err").textContent = (rate * 100).toFixed(1) + "%";
+      document.getElementById("p99").textContent = Math.round(s.p99_ms) + " ms";
+      const dot = document.getElementById("dot");
+      dot.className = "dot" + (rate > 0.05 ? " bad" : rate > 0 ? " warn" : "");
+    }
+  } catch (e) { /* the status strip is decoration; never block the shop */ }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

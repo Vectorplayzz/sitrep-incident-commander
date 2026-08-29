@@ -11,11 +11,18 @@ Built on [TrueForge](https://github.com/truefoundry/trueforge) for
 cp .env.example .env    # add your model + Daytona keys
 make up                 # stack + harness, wait ~90s for a baseline
 python scripts/setup_trueforge.py
-make incident           # break something
-python scripts/run_incident.py
 ```
 
-Full instructions: **[docs/setup.md](docs/setup.md)**.
+Then open two tabs and drive the whole thing from the browser:
+
+| | |
+|---|---|
+| **http://localhost:8099** | the shop. Break it from the Operations panel, watch orders fail. |
+| **http://localhost:8790** | the harness. Tell the agent to investigate, approve its fix. |
+
+Setup: **[docs/setup.md](docs/setup.md)** ·
+How the bug works: **[docs/how-it-works.md](docs/how-it-works.md)** ·
+Recording a demo: **[docs/recording-script.md](docs/recording-script.md)**
 
 ---
 

@@ -21,8 +21,7 @@ Then open two tabs and drive the whole thing from the browser:
 | **http://localhost:8790** | the harness. Tell the agent to investigate, approve its fix. |
 
 Setup: **[docs/setup.md](docs/setup.md)** ·
-How the bug works: **[docs/how-it-works.md](docs/how-it-works.md)** ·
-Recording a demo: **[docs/recording-script.md](docs/recording-script.md)**
+How the bug works: **[docs/how-it-works.md](docs/how-it-works.md)**
 
 ---
 

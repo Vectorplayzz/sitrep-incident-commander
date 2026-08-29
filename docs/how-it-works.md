@@ -1,8 +1,7 @@
 # The bug, in plain English
 
-Read this once and you can explain the whole project to anyone, including
-awkward questions. Nothing here is hand-waved — every claim maps to a file
-you can open.
+How the failure works, why it is realistic, and how the agent finds it.
+Nothing here is hand-waved — every claim maps to a file you can open.
 
 ---
 
@@ -91,8 +90,10 @@ error rate sits around 20–30% rather than 100% — most baskets are small. And
 it is why nobody noticed in testing, where you naturally test with two or
 three items.
 
-If a judge asks "why isn't it just broken for everyone?" — that is the
-answer, and it is the single best thing to be able to say about this project.
+That partial failure is the interesting part. A service that is entirely
+down is trivial to diagnose; one that fails for a quarter of requests, with
+the failures sharing a property nobody has noticed yet, is the situation an
+investigator is actually for.
 
 ---
 
@@ -164,11 +165,10 @@ sandbox and does three things:
 - **Measures the damage** — how many requests, what share of traffic, over
   how long.
 
-If a judge asks "did you hardcode the answer?" — no, and there is a test that
-proves it: `test_reports_no_discriminator_when_failures_are_uniform` feeds it
-*randomly* distributed failures and asserts it reports **nothing**. A tool
-that always finds a correlation would let the agent invent a root cause for
-any outage.
+The answer is not hardcoded, and there is a test that proves it:
+`test_reports_no_discriminator_when_failures_are_uniform` feeds it *randomly*
+distributed failures and asserts it reports **nothing**. A tool that always
+finds a correlation would let the agent invent a root cause for any outage.
 
 **4. Conclude.** It puts the three together: the change point matches the
 deploy, the deploy's description explains the mechanism, and the failure
@@ -203,37 +203,36 @@ It is enforced in three places, deliberately:
    TrueForge does *not* error if you name a tool that does not exist — it
    just silently stops gating it.
 
-That third one is worth mentioning if anyone asks what was hard: a typo in
-the config would have removed the safety gate with no error message. The test
-catches it.
+That third one matters more than it sounds: a typo in the config would have
+removed the safety gate with no error message anywhere. The test catches it.
 
 ---
 
-## 6. Questions you might get
+## 6. Common questions
 
-**"Is this a real system or a mock?"**
+**Is this a real system or a mock?**
 Real processes, real HTTP, real concurrency, real latency. The failure is not
 scripted — it emerges from the arithmetic above. Nothing anywhere says "fail
 this request". What is simulated is the *deploy*: switching version flips
 which handler function runs, rather than rebuilding a container.
 
-**"Did the agent really find the cart-size correlation, or did you tell it?"**
+**Did the agent really find the cart-size correlation, or was it told?**
 Really found it. The tool that returns request data hands back raw rows and
 does no analysis. The analysis script scans every attribute column with no
 knowledge of the domain. Both are short files you can read.
 
-**"What if the answer isn't a rollback?"**
+**What if the answer is not a rollback?**
 Then it should not roll back, and it does not. `make surge` creates a
 capacity problem with no bad deploy — the agent chose `scale_service` and
 explicitly ruled the deploy out. `make degrade` makes the dependency slow —
 there, no tool it has can fix the problem, and it **declined to act at all**
 and escalated. The contrast table in the README has the numbers.
 
-**"What happens if you deny it?"**
+**What happens if you deny the approval?**
 It stops and escalates to a human. It does not look for another route. That
 is tested too.
 
-**"What is the hardest part?"**
+**What was the hardest part to get right?**
 Making the outage *partial*. A service that is 100% down is trivial to
 diagnose and proves nothing. Getting failures to correlate with one property
 of the request — so there is something real to discover — took several

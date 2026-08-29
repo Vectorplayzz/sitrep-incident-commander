@@ -35,11 +35,20 @@ RELEASES = {
 }
 
 
-def deploy(version: str) -> None:
+def deploy(version: str, skip_if_active: bool = False) -> None:
     if version not in RELEASES:
         raise SystemExit(f"unknown version {version!r}; known: {list(RELEASES)}")
     meta = RELEASES[version]
     telemetry.init_db()
+
+    # Re-deploying the version already running adds a deploy row that did not
+    # change anything, and an investigator correlating a recovery against
+    # deploy history will reasonably wonder whether that redeploy caused it.
+    # It did not. Do not manufacture the coincidence.
+    if skip_if_active and telemetry.active_version(SERVICE, default="") == version:
+        print(f"{SERVICE} already on {version}; no deploy recorded")
+        return
+
     telemetry.record_deploy(service=SERVICE, version=version, **meta)
     telemetry.log(
         service=SERVICE,
@@ -105,13 +114,47 @@ def degrade_inventory(latency_ms: float = DEGRADED_LATENCY_MS) -> None:
 
 
 def restore() -> None:
-    """Undo every scenario knob and return to the healthy baseline."""
+    """Undo every scenario knob and return to the healthy baseline.
+
+    Every reset is written to the audit log. An earlier version changed
+    these silently, which left the trail inconsistent: the log showed the
+    agent scaling inventory-api to 2 replicas, and the topology then
+    reported 1, with nothing explaining the difference. The agent noticed
+    and said so, which is exactly the right instinct and exactly the wrong
+    thing to make it waste an investigation on.
+    """
     telemetry.init_db()
+    previous_replicas = telemetry.get_control_int("inventory_replicas", 1)
+    previous_latency = telemetry.get_control_float("inventory_latency_ms", 28.0)
+    previous_workers = telemetry.get_control_int("loadgen_workers", 12)
+
     telemetry.set_control("loadgen_workers", 12)
     telemetry.set_control("loadgen_think_time_ms", 2000.0)
     telemetry.set_control("inventory_latency_ms", 28.0)
     telemetry.set_control("inventory_replicas", 1)
-    deploy("v1.4.2")
+
+    telemetry.record_action(
+        actor="chaos-cli",
+        action="restore_baseline",
+        target="stack",
+        params={
+            "loadgen_workers": [previous_workers, 12],
+            "inventory_latency_ms": [previous_latency, 28.0],
+            "inventory_replicas": [previous_replicas, 1],
+        },
+        result="reset to baseline by operator",
+    )
+    telemetry.log(
+        service="inventory-api",
+        level="info",
+        message=(
+            f"operator reset: replicas {previous_replicas} -> 1,"
+            f" lookup latency {previous_latency:.0f}ms -> 28ms"
+        ),
+        previous_replicas=previous_replicas,
+        previous_latency_ms=previous_latency,
+    )
+    deploy("v1.4.2", skip_if_active=True)
     print("restored: baseline traffic, healthy upstream, 1 replica, v1.4.2")
 
 

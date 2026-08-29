@@ -119,6 +119,21 @@ async def startup() -> None:
     telemetry.init_db()
     if not telemetry.get_control("inventory_replicas", ""):
         telemetry.set_control("inventory_replicas", 1)
+
+    # Seed a deploy record. Without one, get_deploys(inventory-api) is empty
+    # and the topology reports a null active_version, so an investigator
+    # cannot tell whether this service changed recently -- and is pushed
+    # toward blaming the only service that does have a deploy history.
+    if telemetry.active_version(SERVICE, default="") == "":
+        telemetry.record_deploy(
+            service=SERVICE,
+            version=VERSION,
+            commit_sha="a41b90e",
+            author="dana@example.com",
+            summary="inventory: add warehouse field to lookup responses",
+            ts=time.time() - 86_400,
+        )
+
     asyncio.create_task(_capacity_ticker())
 
 

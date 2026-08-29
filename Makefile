@@ -11,8 +11,6 @@ down:
 ## Wipe telemetry and start clean (do this before recording the demo).
 reset:
 	docker compose down -v
-	rm -rf data
-	mkdir -p data
 
 logs:
 	docker compose logs -f --tail=100
@@ -21,6 +19,7 @@ ps:
 	docker compose ps
 
 ## Ship the bad deploy. This is the outage.
+## Scenario 1: ship the bad deploy (code regression).
 incident:
 	docker compose exec -T checkout-api python -m chaos.main incident
 
@@ -30,3 +29,15 @@ heal:
 
 status:
 	docker compose exec -T checkout-api python -m chaos.main status
+
+## Scenario 2: demand outgrows capacity. No deploy. Fix is scale, not rollback.
+surge:
+	docker compose exec -T checkout-api python -m chaos.main surge
+
+## Scenario 3: the upstream dependency degrades. checkout-api pages but is healthy.
+degrade:
+	docker compose exec -T checkout-api python -m chaos.main degrade-inventory
+
+## Undo every scenario and return to the healthy baseline.
+restore:
+	docker compose exec -T checkout-api python -m chaos.main restore

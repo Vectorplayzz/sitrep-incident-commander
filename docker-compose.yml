@@ -17,7 +17,7 @@ services:
       SITREP_DB: /data/telemetry.db
       INVENTORY_LATENCY_MS: "28"
     volumes:
-      - ./data:/data
+      - telemetry-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx;httpx.get('http://localhost:8000/health').raise_for_status()"]
       interval: 5s
@@ -33,7 +33,7 @@ services:
       SITREP_DB: /data/telemetry.db
       INVENTORY_URL: http://inventory-api:8000
     volumes:
-      - ./data:/data
+      - telemetry-data:/data
     ports:
       - "8801:8000"
     depends_on:
@@ -55,7 +55,7 @@ services:
       LOADGEN_RPS: "6"
       LOADGEN_CONCURRENCY: "12"
     volumes:
-      - ./data:/data
+      - telemetry-data:/data
     depends_on:
       checkout-api:
         condition: service_healthy
@@ -92,7 +92,7 @@ services:
       SITREP_MCP_HOST: 0.0.0.0
       SITREP_MCP_PORT: "8931"
     volumes:
-      - ./data:/data
+      - telemetry-data:/data
     ports:
       - "8931:8931"
     depends_on:
@@ -101,3 +101,5 @@ services:
 
 volumes:
   trueforge-state:
+  # A named volume, not a bind mount. See services/common/telemetry.py.
+  telemetry-data:

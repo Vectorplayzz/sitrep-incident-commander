@@ -60,4 +60,20 @@ services:
       checkout-api:
         condition: service_healthy
 
-# The MCP server the agent investigates through is added in the next PR.
+  # The interface SITREP investigates through. TrueForge connects to remote
+  # HTTP MCP servers, so this is a long-lived service rather than a stdio
+  # subprocess. Register it in TrueForge as http://localhost:8931/mcp
+  mcp-server:
+    build:
+      context: ./mcp-server
+    environment:
+      SITREP_DB: /data/telemetry.db
+      SITREP_MCP_HOST: 0.0.0.0
+      SITREP_MCP_PORT: "8931"
+    volumes:
+      - ./data:/data
+    ports:
+      - "8931:8931"
+    depends_on:
+      checkout-api:
+        condition: service_healthy

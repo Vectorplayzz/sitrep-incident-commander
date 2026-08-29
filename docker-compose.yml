@@ -60,6 +60,27 @@ services:
       checkout-api:
         condition: service_healthy
 
+  # The agent harness itself. Containerised because TrueForge v0.1.4 cannot
+  # start on Windows (ESM loader rejects the bare drive-letter path), and
+  # because running it here puts it on the same network as the MCP server.
+  # UI at http://localhost:8790
+  trueforge:
+    build:
+      context: ./trueforge
+    environment:
+      # Defaults to localhost, which inside a container means the published
+      # port reaches nothing. Must bind all interfaces.
+      HOST: 0.0.0.0
+      PORT: "8790"
+    ports:
+      - "8790:8790"
+    volumes:
+      - trueforge-state:/root/.local/share
+    depends_on:
+      mcp-server:
+        condition: service_started
+    restart: unless-stopped
+
   # The interface SITREP investigates through. TrueForge connects to remote
   # HTTP MCP servers, so this is a long-lived service rather than a stdio
   # subprocess. Register it in TrueForge as http://localhost:8931/mcp
@@ -77,3 +98,6 @@ services:
     depends_on:
       checkout-api:
         condition: service_healthy
+
+volumes:
+  trueforge-state:

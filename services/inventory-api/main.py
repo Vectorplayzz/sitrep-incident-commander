@@ -43,17 +43,83 @@ LOOKUP_LATENCY_MS = float(os.environ.get("INVENTORY_LATENCY_MS", "28"))
 # INVENTORY_POOL_SIZE below the checkout concurrency turns queue contention
 # into a second, independent failure mode worth investigating. Left at 24 by
 # default so the demo has exactly one root cause to find.
-POOL_SIZE = int(os.environ.get("INVENTORY_POOL_SIZE", "24"))
+DEFAULT_POOL_SIZE = int(os.environ.get("INVENTORY_POOL_SIZE", "24"))
+
+# Replica count is the knob an operator actually turns. Capacity scales with
+# it, so the agent's scale_service tool has something real to change.
+WORKERS_PER_REPLICA = 24
 
 app = FastAPI(title=SERVICE, version=VERSION)
-_pool: asyncio.Semaphore | None = None
+
+
+def current_latency_ms() -> float:
+    return telemetry.get_control_float("inventory_latency_ms", LOOKUP_LATENCY_MS)
+
+
+def current_pool_size() -> int:
+    replicas = telemetry.get_control_int("inventory_replicas", 1)
+    return max(1, replicas * WORKERS_PER_REPLICA)
+
+
+class DynamicLimiter:
+    """A semaphore whose ceiling can move while requests are queued.
+
+    asyncio.Semaphore fixes its capacity at construction, so an approved
+    scale-up would not reach the requests already waiting -- exactly the ones
+    the operator scaled up to rescue. This re-reads the limit on every
+    acquire and wakes waiters when it changes.
+    """
+
+    def __init__(self) -> None:
+        self._in_flight = 0
+        self._waiters: list[asyncio.Future] = []
+
+    async def __aenter__(self) -> "DynamicLimiter":
+        while self._in_flight >= current_pool_size():
+            waiter = asyncio.get_running_loop().create_future()
+            self._waiters.append(waiter)
+            await waiter
+        self._in_flight += 1
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        self._in_flight -= 1
+        self._wake_one()
+
+    def _wake_one(self) -> None:
+        while self._waiters:
+            waiter = self._waiters.pop(0)
+            if not waiter.done():
+                waiter.set_result(None)
+                return
+
+    def wake_all(self) -> None:
+        """Called on a ticker so a raised ceiling reaches queued requests."""
+        waiters, self._waiters = self._waiters, []
+        for waiter in waiters:
+            if not waiter.done():
+                waiter.set_result(None)
+
+    @property
+    def in_flight(self) -> int:
+        return self._in_flight
+
+
+_pool = DynamicLimiter()
+
+
+async def _capacity_ticker() -> None:
+    while True:
+        await asyncio.sleep(0.5)
+        _pool.wake_all()
 
 
 @app.on_event("startup")
 async def startup() -> None:
-    global _pool
     telemetry.init_db()
-    _pool = asyncio.Semaphore(POOL_SIZE)
+    if not telemetry.get_control("inventory_replicas", ""):
+        telemetry.set_control("inventory_replicas", 1)
+    asyncio.create_task(_capacity_ticker())
 
 
 class BatchRequest(BaseModel):
@@ -85,7 +151,7 @@ async def record(request: Request, call_next):
 async def _lookup(item_id: str) -> dict[str, object]:
     async with _pool:
         jitter = random.uniform(0.85, 1.15)
-        await asyncio.sleep((LOOKUP_LATENCY_MS * jitter) / 1000)
+        await asyncio.sleep((current_latency_ms() * jitter) / 1000)
         return {
             "item_id": item_id,
             "in_stock": True,
@@ -94,8 +160,15 @@ async def _lookup(item_id: str) -> dict[str, object]:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": SERVICE, "version": VERSION}
+async def health() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "service": SERVICE,
+        "version": VERSION,
+        "replicas": telemetry.get_control_int("inventory_replicas", 1),
+        "worker_pool": current_pool_size(),
+        "in_flight": _pool.in_flight,
+    }
 
 
 @app.get("/items/{item_id}")
@@ -107,7 +180,8 @@ async def get_item(item_id: str) -> dict[str, object]:
 @app.post("/items/batch")
 async def get_items_batch(body: BatchRequest) -> dict[str, object]:
     """Batch lookup. Costs roughly one lookup regardless of item count."""
-    await asyncio.sleep(LOOKUP_LATENCY_MS / 1000)
+    async with _pool:
+        await asyncio.sleep(current_latency_ms() / 1000)
     return {
         "items": [
             {"item_id": i, "in_stock": True, "warehouse": "ams-1"} for i in body.item_ids

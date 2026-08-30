@@ -61,12 +61,20 @@ UPSTREAM_BUDGET_S = float(os.environ.get("CHECKOUT_UPSTREAM_BUDGET_S", "0.6"))
 LARGE_CART_SHARE = float(os.environ.get("CHECKOUT_LARGE_CART_SHARE", "0.30"))
 
 
-def _make_cart() -> list[dict[str, object]]:
-    """A cart. Size is what turns the N+1 regression into an outage."""
-    if random.random() < LARGE_CART_SHARE:
-        size = random.randint(18, 28)
-    else:
-        size = random.randint(2, 6)
+def _make_cart(size: int | None = None) -> list[dict[str, object]]:
+    """A cart. Size is what turns the N+1 regression into an outage.
+
+    A caller may pass an explicit size -- the storefront does, so a shopper
+    can see for themselves that a small basket goes through and a large one
+    does not. Left unset, the size is drawn from the same skewed distribution
+    the load generator produces.
+    """
+    if size is None:
+        if random.random() < LARGE_CART_SHARE:
+            size = random.randint(18, 28)
+        else:
+            size = random.randint(2, 6)
+    size = max(1, min(60, size))
     return [
         {
             "item_id": f"sku-{random.randint(1000, 9999)}",
@@ -154,7 +162,16 @@ async def checkout(request: Request) -> JSONResponse:
     handler = HANDLERS.get(version, HANDLERS[DEFAULT_VERSION])
     trace_id = request.state.trace_id
     headers = {"x-trace-id": trace_id, "x-span-id": request.state.span_id}
-    cart = _make_cart()
+
+    requested_size: int | None = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("cart_lines") is not None:
+            requested_size = int(body["cart_lines"])
+    except Exception:
+        requested_size = None
+
+    cart = _make_cart(requested_size)
 
     try:
         result = await asyncio.wait_for(

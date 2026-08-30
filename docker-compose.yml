@@ -45,6 +45,24 @@ services:
       timeout: 3s
       retries: 10
 
+  # The shop a customer actually sees. This is where an outage stops being a
+  # metric and becomes an order that will not go through.
+  storefront:
+    build:
+      context: ./services
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --app-dir /app/storefront
+    environment:
+      SITREP_DB: /data/telemetry.db
+      CHECKOUT_URL: http://checkout-api:8000
+    volumes:
+      - telemetry-data:/data
+    ports:
+      - "8099:8000"
+    depends_on:
+      checkout-api:
+        condition: service_healthy
+
   loadgen:
     build:
       context: ./services

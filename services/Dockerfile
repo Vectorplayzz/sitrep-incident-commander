@@ -12,6 +12,7 @@ COPY inventory-api /app/inventory-api
 COPY checkout-api /app/checkout-api
 COPY loadgen /app/loadgen
 COPY chaos /app/chaos
+COPY storefront /app/storefront
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/common \

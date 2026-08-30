@@ -95,6 +95,23 @@ def stream_turn(base: str, session_id: str, items: list[dict]):
                 continue
 
 
+def subagent_brief(args: dict) -> str:
+    """A one-line description of what a subagent was asked to do.
+
+    The argument name create_sub_agent uses is not documented, so rather than
+    guessing one key, take the longest string in the payload -- the brief is
+    always the biggest field by a wide margin.
+    """
+    for key in ("instructions", "task", "prompt", "description", "goal"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())[:120]
+    strings = [v for v in args.values() if isinstance(v, str)]
+    if strings:
+        return " ".join(max(strings, key=len).split())[:120]
+    return "(no brief)"
+
+
 def summarise_args(args: dict) -> str:
     parts = []
     for key, value in args.items():
@@ -231,16 +248,17 @@ def main() -> int:
                         tool_calls_seen += 1
                         if entry["name"] == "create_sub_agent":
                             subagents += 1
-                            brief = (
-                                parsed.get("instructions")
-                                or parsed.get("task")
-                                or parsed.get("prompt")
-                                or ""
-                            )
-                            print(f"  {BLUE}subagent{RESET} {brief[:110]}")
+                            print(f"  {BLUE}subagent{RESET} {subagent_brief(parsed)}")
                         else:
-                            print(f"  {DIM}tool{RESET}  {entry['name']}"
-                                  f"({summarise_args(parsed)})")
+                            thread = event.get("thread_id")
+                            prefix = (
+                                f"  {DIM}tool{RESET}  "
+                                if thread in (None, "main")
+                                else f"  {BLUE}|{RESET} {DIM}"
+                            )
+                            suffix = "" if thread in (None, "main") else RESET
+                            print(f"{prefix}{entry['name']}"
+                                  f"({summarise_args(parsed)}){suffix}")
                     calls = {}
 
                 usage = event.get("usage")

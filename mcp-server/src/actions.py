@@ -174,15 +174,52 @@ def scale_service(service: str, replicas: int, reason: str) -> dict[str, Any]:
     if not reason.strip():
         return _refuse("scale_service", service, params, "a scaling change needs a reason")
 
+    # Only inventory-api models capacity in this stack; it is the service with
+    # a bounded worker pool. Scaling anything else is accepted and audited but
+    # changes nothing, and says so rather than pretending.
+    scalable = service == "inventory-api"
+    previous = None
+    if scalable:
+        with _connect(read_only=False) as conn:
+            row = conn.execute(
+                "SELECT value FROM controls WHERE key = 'inventory_replicas'"
+            ).fetchone()
+            previous = int(float(row["value"])) if row else 1
+            conn.execute(
+                "INSERT INTO controls (key, value, updated_ts) VALUES (?,?,?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+                " updated_ts = excluded.updated_ts",
+                ("inventory_replicas", str(replicas), time.time()),
+            )
+            conn.execute(
+                "INSERT INTO logs (id, ts, service, level, message, trace_id, fields)"
+                " VALUES (?,?,?,?,?,NULL,?)",
+                (
+                    uuid.uuid4().hex,
+                    time.time(),
+                    service,
+                    "INFO",
+                    f"scaled from {previous} to {replicas} replicas by {ACTOR}",
+                    json.dumps({"reason": reason, "previous_replicas": previous}),
+                ),
+            )
+            conn.commit()
+
     action_id = _audit("scale_service", service, params, f"scaled to {replicas}")
     return {
         "ok": True,
         "action_id": action_id,
         "service": service,
         "replicas": replicas,
+        "previous_replicas": previous,
+        "effective": scalable,
         "note": (
-            "Capacity changes treat symptoms. If the cause is a code regression,"
-            " scaling buys time but does not fix it."
+            "Capacity takes effect within a couple of seconds. Re-query"
+            " get_metrics to confirm recovery rather than assuming it."
+            if scalable
+            else f"{service} has no capacity limit in this stack, so this"
+            " changed nothing. If the bottleneck is elsewhere, scale that"
+            " service instead."
         ),
     }
 

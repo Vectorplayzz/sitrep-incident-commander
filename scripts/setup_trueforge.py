@@ -3,8 +3,8 @@
 Registers the model provider, the Daytona sandbox, the MCP connector and the
 skill, then creates the agent from `agents/sitrep-commander.json`.
 
-This exists because the alternative is a judge following nine steps of
-click-through from a README and giving up on step four. Everything here is
+This exists because the alternative is nine steps of click-through from a
+README, which most people abandon around step four. Everything here is
 idempotent: run it twice and the second run updates rather than duplicates.
 
     python scripts/setup_trueforge.py

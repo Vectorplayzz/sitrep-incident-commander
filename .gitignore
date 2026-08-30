@@ -18,3 +18,7 @@ dist/
 
 .DS_Store
 *.log
+
+# Personal working notes: build plan, demo and recording scripts.
+# Not part of the project.
+.local/

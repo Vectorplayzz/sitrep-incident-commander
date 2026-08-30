@@ -12,6 +12,7 @@ import json
 import os
 import queue
 import sqlite3
+import sys
 import threading
 import time
 import uuid
@@ -100,6 +101,15 @@ CREATE TABLE IF NOT EXISTS incidents (
     postmortem   TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_incidents_sig ON incidents(signature);
+
+-- Runtime knobs the services read on a short TTL. This is what lets chaos
+-- create a capacity incident, and what lets the agent's scale_service tool
+-- actually relieve one, rather than both being pantomime.
+CREATE TABLE IF NOT EXISTS controls (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_ts REAL NOT NULL
+);
 """
 
 
@@ -111,6 +121,10 @@ def connect(path: str | None = None, *, read_only: bool = False) -> sqlite3.Conn
         os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
         conn = sqlite3.connect(target, timeout=15.0)
     conn.row_factory = sqlite3.Row
+    # Five processes share this file over a bind mount. Without a generous
+    # busy timeout, concurrent writers raise "database is locked" the moment
+    # traffic picks up.
+    conn.execute("PRAGMA busy_timeout = 15000")
     return conn
 
 
@@ -142,7 +156,7 @@ def _new_id() -> str:
 # and flushed in batches from a background thread instead.
 # --------------------------------------------------------------------------
 
-_QUEUE: "queue.Queue[tuple[str, tuple[Any, ...]] | None]" = queue.Queue(maxsize=20000)
+_QUEUE: "queue.Queue[tuple[str, tuple[Any, ...]] | None]" = queue.Queue(maxsize=100000)
 _FLUSH_INTERVAL = 0.25
 _BATCH_MAX = 500
 _writer_thread: threading.Thread | None = None
@@ -181,13 +195,76 @@ def _drain_once(conn: sqlite3.Connection) -> bool:
     return not shutting_down
 
 
+# Incremented whenever a batch is lost. Surfaced through writer_health() so
+# a silent telemetry gap is diagnosable instead of looking like an outage.
+_dropped_batches = 0
+_dropped_rows = 0
+_write_errors = 0
+
+
+# Keep the store bounded. A long demo at surge volume writes tens of
+# thousands of rows a minute, and an ever-growing database makes every write
+# slower -- which is how a collector problem starts looking like an outage.
+RETENTION_SECONDS = float(os.environ.get("SITREP_RETENTION_S", str(6 * 3600)))
+_PRUNE_INTERVAL = 300.0
+_last_prune = 0.0
+
+
+def _prune(conn: sqlite3.Connection) -> None:
+    global _last_prune
+    now = time.time()
+    if now - _last_prune < _PRUNE_INTERVAL:
+        return
+    _last_prune = now
+    cutoff = now - RETENTION_SECONDS
+    # Incidents, deploys, controls and the audit log are never pruned: they
+    # are the agent's memory and its accountability record.
+    for table in ("requests", "logs"):
+        conn.execute(f"DELETE FROM {table} WHERE ts < ?", (cutoff,))
+    conn.commit()
+
+
 def _writer_loop() -> None:
-    conn = connect()
-    try:
-        while _drain_once(conn):
-            pass
-    finally:
-        conn.close()
+    """Drain the queue forever, surviving database errors.
+
+    The first version of this had no exception handling, and that was a real
+    bug rather than a theoretical one: under a traffic surge a single
+    "database is locked" killed the thread mid-batch. Writes stopped, nothing
+    logged it, and the telemetry simply went quiet -- which reads as a total
+    outage rather than as a broken collector. Any incident investigated
+    through that data would have been investigating an artefact.
+    """
+    global _write_errors
+    conn = None
+    while True:
+        try:
+            if conn is None:
+                conn = connect()
+            if not _drain_once(conn):
+                return
+            _prune(conn)
+        except Exception as exc:  # noqa: BLE001 - must never exit on error
+            _write_errors += 1
+            print(f"telemetry writer error ({type(exc).__name__}: {exc}); reconnecting",
+                  file=sys.stderr, flush=True)
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = None
+            time.sleep(0.5)
+
+
+def writer_health() -> dict[str, Any]:
+    return {
+        "alive": bool(_writer_thread and _writer_thread.is_alive()),
+        "queued": _QUEUE.qsize(),
+        "capacity": _QUEUE.maxsize,
+        "dropped_rows": _dropped_rows,
+        "dropped_batches": _dropped_batches,
+        "write_errors": _write_errors,
+    }
 
 
 def _ensure_writer() -> None:
@@ -208,9 +285,14 @@ def _enqueue(sql: str, params: tuple[Any, ...]) -> None:
     try:
         _QUEUE.put_nowait((sql, params))
     except queue.Full:
-        # Dropping telemetry beats stalling the request path. Real agents
-        # deal with lossy telemetry; so should this one.
-        pass
+        # Dropping telemetry beats stalling the request path, but it must be
+        # counted -- an uncounted drop is indistinguishable from an outage.
+        global _dropped_rows, _dropped_batches
+        _dropped_rows += 1
+        if _dropped_rows % 1000 == 1:
+            _dropped_batches += 1
+            print(f"telemetry queue full; dropped {_dropped_rows} rows so far",
+                  file=sys.stderr, flush=True)
 
 
 def flush(timeout: float = 5.0) -> None:
@@ -316,6 +398,77 @@ def record_deploy(
 
 _VERSION_CACHE: dict[str, tuple[float, str]] = {}
 _VERSION_TTL = 2.0
+
+_CONTROL_CACHE: dict[str, tuple[float, str]] = {}
+_CONTROL_TTL = 2.0
+
+
+def get_control(key: str, default: str) -> str:
+    """Read a runtime knob, cached briefly so it stays off the hot path.
+
+    The 2s TTL is deliberate: a chaos command or an approved scale_service
+    call takes visible effect within a couple of seconds, which is what makes
+    cause and effect legible in a demo.
+    """
+    cached = _CONTROL_CACHE.get(key)
+    if cached is not None and (time.time() - cached[0]) < _CONTROL_TTL:
+        return cached[1]
+
+    value = default
+    try:
+        conn = connect(read_only=True)
+    except sqlite3.OperationalError:
+        return default
+    try:
+        row = conn.execute("SELECT value FROM controls WHERE key = ?", (key,)).fetchone()
+        if row:
+            value = row["value"]
+    except sqlite3.OperationalError:
+        return default
+    finally:
+        conn.close()
+
+    _CONTROL_CACHE[key] = (time.time(), value)
+    return value
+
+
+def get_control_float(key: str, default: float) -> float:
+    try:
+        return float(get_control(key, str(default)))
+    except ValueError:
+        return default
+
+
+def get_control_int(key: str, default: int) -> int:
+    try:
+        return int(float(get_control(key, str(default))))
+    except ValueError:
+        return default
+
+
+def set_control(key: str, value: object, attempts: int = 5) -> None:
+    """Write a runtime knob, retrying through write contention.
+
+    The telemetry writer holds the write lock in bursts, so a control change
+    issued mid-incident can collide with it. Crashing here would leave the
+    operator staring at a stack trace instead of a working chaos command.
+    """
+    _CONTROL_CACHE.pop(key, None)
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            with _write() as conn:
+                conn.execute(
+                    "INSERT INTO controls (key, value, updated_ts) VALUES (?,?,?)"
+                    " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
+                    " updated_ts = excluded.updated_ts",
+                    (key, str(value), time.time()),
+                )
+            return
+        except sqlite3.OperationalError as exc:
+            last = exc
+            time.sleep(0.4 * (attempt + 1))
+    raise RuntimeError(f"could not set control {key!r} after {attempts} attempts") from last
 
 
 def active_version(service: str, default: str = "v1.4.2") -> str:

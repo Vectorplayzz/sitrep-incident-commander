@@ -361,6 +361,11 @@ TOPOLOGY = {
         "depends_on": ["inventory-api"],
         "routes": ["/checkout", "/health"],
         "source_path": "services/checkout-api",
+        "upstream_budget_ms": 600,
+        "note": (
+            "Has no capacity limit of its own. When it returns 503 the cause"
+            " is upstream time, not checkout-api saturation."
+        ),
     },
     "inventory-api": {
         "role": "internal service, stock and warehouse lookups",
@@ -379,10 +384,29 @@ def get_service_topology() -> dict[str, Any]:
                 "SELECT service, version FROM deploys WHERE active = 1"
             ).fetchall()
         }
+        controls = {
+            r["key"]: r["value"]
+            for r in conn.execute("SELECT key, value FROM controls").fetchall()
+        }
+
+    replicas = int(float(controls.get("inventory_replicas", 1)))
+    capacity = {
+        "inventory-api": {
+            "replicas": replicas,
+            # The only bounded resource in this stack. Worth knowing before
+            # concluding that a latency problem must be a code change.
+            "concurrent_lookup_capacity": replicas * 24,
+        }
+    }
 
     return {
         "services": [
-            {"name": name, "active_version": active.get(name), **meta}
+            {
+                "name": name,
+                "active_version": active.get(name),
+                **meta,
+                **({"capacity": capacity[name]} if name in capacity else {}),
+            }
             for name, meta in TOPOLOGY.items()
         ]
     }

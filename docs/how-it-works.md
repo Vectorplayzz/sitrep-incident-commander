@@ -117,12 +117,13 @@ it move.
 <summary>Terminal equivalents, if you prefer</summary>
 
 ```bash
-make incident    # deploy v1.5.0
-make heal        # deploy v1.4.2
-make status      # current version, error rate, p99
-make surge       # a different incident: traffic spike, no deploy
-make degrade     # a third: the inventory service gets slow
-make restore     # undo everything
+cd sitrep
+docker compose exec -T checkout-api python -m chaos.main incident
+docker compose exec -T checkout-api python -m chaos.main heal
+docker compose exec -T checkout-api python -m chaos.main status
+docker compose exec -T checkout-api python -m chaos.main surge
+docker compose exec -T checkout-api python -m chaos.main degrade-inventory
+docker compose exec -T checkout-api python -m chaos.main restore
 ```
 </details>
 
@@ -222,9 +223,9 @@ does no analysis. The analysis script scans every attribute column with no
 knowledge of the domain. Both are short files you can read.
 
 **What if the answer is not a rollback?**
-Then it should not roll back, and it does not. `make surge` creates a
+Then it should not roll back, and it does not. The `surge` scenario creates a
 capacity problem with no bad deploy — the agent chose `scale_service` and
-explicitly ruled the deploy out. `make degrade` makes the dependency slow —
+explicitly ruled the deploy out. `degrade-inventory` makes the dependency slow —
 there, no tool it has can fix the problem, and it **declined to act at all**
 and escalated. The contrast table in the README has the numbers.
 

@@ -37,8 +37,11 @@ Fill in `OLLAMA_API_KEY` and `DAYTONA_API_KEY`. The file is gitignored.
 ## 2. Start everything
 
 ```bash
-make up
+docker compose up -d --build
 ```
+
+(There is a `Makefile` with the same shortcuts, but `make` is not installed
+on Windows by default, so every step here uses the underlying command.)
 
 That brings up `checkout-api`, `inventory-api`, a load generator, the SITREP
 MCP server, and **TrueForge itself** — the harness runs as a compose service
@@ -65,8 +68,8 @@ against — without a baseline, the change-point analysis has nothing to detect
 a change *from*. Check it is settled:
 
 ```bash
-make status
-# {"active_version": "v1.4.2", "error_rate": 0.0, "p99_ms": 69.5}
+docker compose exec -T checkout-api python -m chaos.main status
+# {"active_version": "v1.4.2", "error_rate": 0.0, "p99_ms": 35.4}
 ```
 
 ## 3. Configure it
@@ -93,8 +96,11 @@ MCP server is not reachable — check `docker compose ps`.
 
 ## 4. Break something
 
+Open the shop at `http://localhost:8099`, expand **Operations**, and click
+**Deploy checkout v1.5.0**. Or from the command line:
+
 ```bash
-make incident
+docker compose exec -T checkout-api python -m chaos.main incident
 ```
 
 This ships `checkout-api v1.5.0`, which prices carts by fetching each line
@@ -113,16 +119,13 @@ Then watch. It will orient, spawn subagents, run statistics in the sandbox,
 and eventually **stop and ask you** for permission to roll back. Nothing
 touches the stack until you approve.
 
-Approve it, and confirm recovery yourself:
-
-```bash
-make status
-```
+Approve it, then place a 24-item order in the shop yourself. It goes
+through.
 
 ## 6. The second time
 
-Once it has filed a postmortem, run `make incident` again and give it the
-same instruction.
+Once it has filed a postmortem, deploy `v1.5.0` again and give it the same
+instruction.
 
 This time it checks `search_incident_memory` first, recognises the
 signature, and reaches the same conclusion in a fraction of the steps. That
@@ -205,8 +208,8 @@ show `mcp-server` running; `curl http://localhost:8931/mcp` should not
 connection-refuse.
 
 **The agent says nothing is wrong**
-You probably ran `make incident` less than a minute ago, or skipped the
-90-second baseline. Check `make status`.
+You probably deployed `v1.5.0` less than a minute ago, or skipped the
+90-second baseline. Check the health strip at the top of the shop.
 
 **The agent proposes a rollback without investigating**
 Check the skill registered: `python scripts/setup_trueforge.py --check`
@@ -216,7 +219,7 @@ playbook. Skills also require the sandbox to be working.
 **Reset everything**
 
 ```bash
-make reset && make up
+python scripts/fresh.py
 ```
 
 Wipes all telemetry, including filed incidents — which is what you want

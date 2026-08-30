@@ -8,9 +8,8 @@ Built on [TrueForge](https://github.com/truefoundry/trueforge) for
 [The Agent Harness Hackathon](https://www.wemakedevs.org/hackathons/trueforge).
 
 ```bash
-cp .env.example .env    # add your model + Daytona keys
-make up                 # stack + harness, wait ~90s for a baseline
-python scripts/setup_trueforge.py
+cp .env.example .env             # add your model + Daytona keys
+python scripts/fresh.py          # build, start, configure, warm up
 ```
 
 Then open two tabs and drive the whole thing from the browser:
@@ -44,10 +43,13 @@ Demoing an incident responder requires an incident. This repo contains a
 small e-commerce backend and three genuine, reproducible failures — not
 scripted outcomes, but real behaviour of a real system under stress.
 
+Break it from the shop's Operations panel, or from the command line:
+
 ```bash
-make incident   # a code regression: N+1 upstream lookups
-make surge      # demand outgrows capacity: no deploy, no code change
-make degrade    # the upstream dependency slows down
+docker compose exec -T checkout-api python -m chaos.main incident
+docker compose exec -T checkout-api python -m chaos.main surge
+docker compose exec -T checkout-api python -m chaos.main degrade-inventory
+docker compose exec -T checkout-api python -m chaos.main restore
 ```
 
 Crucially, **the correct response differs in each case**, and the evidence
